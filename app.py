@@ -1,10 +1,8 @@
 import os
-import json
 import numpy as np
 import pandas as pd
 import streamlit as st
 from PIL import Image
-import tensorflow as tf
 
 st.set_page_config(
     page_title="Brain Tumor MRI Classifier",
@@ -12,125 +10,90 @@ st.set_page_config(
     layout="centered"
 )
 
-MODEL_PATH = "brain_tumor_cnn.keras"
-DEFAULT_CLASS_NAMES = ["glioma", "meningioma", "notumor", "pituitary"]
+ARCHIVE_PATH = "archive"
+CLASS_DIRECTORIES = {
+    "glioma": "glioma",
+    "healthy": "healthly",
+}
+SUPPORTED_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".bmp", ".webp")
+FEATURE_SIZE = (64, 64)
 
 
 @st.cache_resource
-def load_model():
-    if not os.path.exists(MODEL_PATH):
-        return None
-    # A couple of fallback strategies, since .keras files saved with a different
-    # TF/Keras version than what's installed can hit deserialization errors.
-    last_error = None
-    for kwargs in ({"compile": False, "safe_mode": False}, {"compile": False}, {}):
-        try:
-            return tf.keras.models.load_model(MODEL_PATH, **kwargs)
-        except Exception as e:  # noqa: BLE001
-            last_error = e
-    raise last_error
+def load_reference_images():
+    reference_vectors = []
+    reference_labels = []
+    class_counts = {}
+
+    for label, directory_name in CLASS_DIRECTORIES.items():
+        folder_path = os.path.join(ARCHIVE_PATH, directory_name)
+        if not os.path.isdir(folder_path):
+            class_counts[label] = 0
+            continue
+
+        image_names = sorted(
+            name for name in os.listdir(folder_path)
+            if name.lower().endswith(SUPPORTED_IMAGE_EXTENSIONS)
+        )
+        class_counts[label] = len(image_names)
+
+        for image_name in image_names:
+            image_path = os.path.join(folder_path, image_name)
+            try:
+                with Image.open(image_path) as image:
+                    reference_vectors.append(preprocess_image(image))
+                reference_labels.append(label)
+            except Exception:  # noqa: BLE001
+                continue
+
+    if not reference_vectors:
+        return None, None, class_counts
+
+    return np.vstack(reference_vectors), np.array(reference_labels), class_counts
 
 
-def detect_input_size(model, fallback=(180, 180)):
-    """Read the real (H, W) the model expects straight from its own config,
-    instead of trusting a hardcoded constant that can silently go stale."""
-    try:
-        shape = model.input_shape
-        if isinstance(shape, list):
-            shape = shape[0]
-        if shape and len(shape) == 4 and shape[1] and shape[2]:
-            return int(shape[1]), int(shape[2])
-    except Exception:  # noqa: BLE001
-        pass
-    return fallback
-
-
-def model_has_builtin_rescaling(model):
-    """If the model already contains a Rescaling(1./255)-style layer, don't
-    divide by 255 again in preprocessing — that double-normalizes and produces
-    garbage predictions."""
-    try:
-        for layer in model.layers:
-            if "rescaling" in layer.__class__.__name__.lower():
-                return True
-    except Exception:  # noqa: BLE001
-        pass
-    return False
-
-
-def load_class_names():
-    if os.path.exists("class_names.json"):
-        try:
-            with open("class_names.json", "r") as f:
-                data = json.load(f)
-                if isinstance(data, list) and len(data) > 0:
-                    return data
-        except Exception:
-            pass
-    return DEFAULT_CLASS_NAMES
-
-
-def load_metrics():
-    if os.path.exists("metrics.json"):
-        try:
-            with open("metrics.json", "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {"test_accuracy": "Not available"}
-
-
-def preprocess_image(image, img_size, normalize):
-    image = image.convert("RGB")
+def preprocess_image(image, img_size=FEATURE_SIZE):
+    image = image.convert("L")
     image = image.resize(img_size)
-    img_array = np.array(image, dtype=np.float32)
-    if normalize:
-        img_array = img_array / 255.0
-    img_array = np.expand_dims(img_array, axis=0)
-    return img_array
+    img_array = np.asarray(image, dtype=np.float32) / 255.0
+    return img_array.reshape(-1)
 
 
-def predict_image(model, image, class_names, img_size, normalize):
-    img_array = preprocess_image(image, img_size, normalize)
-    prediction = model.predict(img_array, verbose=0)
+def predict_image(image, reference_vectors, reference_labels):
+    query_vector = preprocess_image(image)
+    distances = np.linalg.norm(reference_vectors - query_vector, axis=1)
 
-    if len(prediction.shape) == 2 and prediction.shape[1] == 1:
-        confidence_raw = float(prediction[0][0])
-        predicted_class = "tumor" if confidence_raw >= 0.5 else "no_tumor"
-        confidence = round(confidence_raw * 100, 2) if confidence_raw >= 0.5 else round((1 - confidence_raw) * 100, 2)
-        labels = ["no_tumor", "tumor"]
-        probs = [
-            round((1 - confidence_raw) * 100, 2),
-            round(confidence_raw * 100, 2)
-        ]
-    else:
-        predicted_index = int(np.argmax(prediction[0]))
-        predicted_class = class_names[predicted_index]
-        confidence = round(float(np.max(prediction[0])) * 100, 2)
-        labels = class_names
-        probs = [round(float(p) * 100, 2) for p in prediction[0]]
+    labels = list(CLASS_DIRECTORIES.keys())
+    class_scores = {}
+    for label in labels:
+        label_distances = distances[reference_labels == label]
+        if len(label_distances) == 0:
+            class_scores[label] = 0.0
+            continue
+        class_scores[label] = 1.0 / (float(np.min(label_distances)) + 1e-6)
 
+    total_score = sum(class_scores.values()) or 1.0
+    probs = [round((class_scores[label] / total_score) * 100, 2) for label in labels]
+    predicted_index = int(np.argmax(probs))
+    predicted_class = labels[predicted_index]
+    confidence = probs[predicted_index]
     return predicted_class, confidence, labels, probs
 
 
 st.title("🧠 Brain Tumor MRI Classifier")
-st.write("Upload a brain MRI image to classify it with a local brain tumor model file.")
+st.write("Upload a brain MRI image to classify it using the local glioma and healthy archive images.")
 
-model = load_model()
-class_names = load_class_names()
-metrics = load_metrics()
+reference_vectors, reference_labels, class_counts = load_reference_images()
 
-if model is None:
-    st.error("brain_tumor_cnn.keras file is not available locally.")
-    st.info("Add your trained model file next to app.py to enable predictions.")
+if reference_vectors is None or reference_labels is None:
+    st.error("No reference images were found in the archive folder.")
+    st.info("Add images inside archive/glioma and archive/healthly to enable predictions.")
     st.stop()
 
-# Auto-detect the correct input size and normalization from the model itself,
-# instead of relying on a hardcoded constant that can mismatch the actual model.
-IMG_SIZE = detect_input_size(model)
-NORMALIZE = not model_has_builtin_rescaling(model)
-st.caption(f"Model expects **{IMG_SIZE[0]}×{IMG_SIZE[1]}** input "
-           f"({'normalizing 0-255 → 0-1 in the app' if NORMALIZE else 'model rescales internally, app sends raw pixels'}).")
+st.caption(
+    f"Using {class_counts.get('glioma', 0)} glioma and {class_counts.get('healthy', 0)} healthy "
+    f"reference images from archive/ at {FEATURE_SIZE[0]}x{FEATURE_SIZE[1]} grayscale resolution."
+)
 
 uploaded_file = st.file_uploader(
     "Upload MRI image",
@@ -149,9 +112,9 @@ if uploaded_file is not None:
     st.image(image, caption="Selected MRI image", use_container_width=True)
 
     try:
-        with st.spinner("Predicting tumor class..."):
+        with st.spinner("Comparing with archive images..."):
             predicted_class, confidence, labels, probs = predict_image(
-                model, image, class_names, IMG_SIZE, NORMALIZE
+                image, reference_vectors, reference_labels
             )
 
         st.success("Prediction completed successfully.")
@@ -159,12 +122,6 @@ if uploaded_file is not None:
         st.subheader("Prediction Result")
         st.write(f"**Predicted Class:** {predicted_class}")
         st.write(f"**Confidence:** {confidence}%")
-
-        test_accuracy = metrics.get("test_accuracy", "Not available")
-        if test_accuracy != "Not available":
-            st.write(f"**Model Test Accuracy:** {test_accuracy}%")
-        else:
-            st.write("**Model Test Accuracy:** Not available")
 
         df = pd.DataFrame({
             "Class": labels,
@@ -176,15 +133,10 @@ if uploaded_file is not None:
 
         st.bar_chart(df.set_index("Class"), use_container_width=True)
 
-        st.info("Confidence is for this uploaded image. Accuracy is the overall model performance on a test dataset.")
+        st.info("This result is based on similarity to the small local archive image set, not on any large Keras model.")
 
     except Exception as e:  # noqa: BLE001
         st.error(f"Prediction failed: {e}")
-        st.caption(
-            "If this still complains about a shape mismatch, the model file itself may be "
-            "corrupted or from an incompatible Keras version. Re-save it with "
-            "model.save('brain_tumor_cnn.keras') using the same TensorFlow/Keras version "
-            "installed here."
-        )
+        st.caption("Check that archive/glioma and archive/healthly contain readable MRI images.")
 else:
-    st.info("Upload a PNG, JPG, or JPEG brain MRI image to get a prediction.")
+    st.info("Upload a PNG, JPG, or JPEG brain MRI image to get a glioma or healthy prediction.")
