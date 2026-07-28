@@ -212,7 +212,7 @@ with tab_train:
     if existing_models:
         model_to_load = st.selectbox("Saved model file", existing_models)
         load_img_size = st.number_input("Image size the saved model was trained at", min_value=32, max_value=512,
-                                         value=160, step=8)
+                                         value=224, step=8)
         if st.button("📂 Load saved model"):
             try:
                 import tensorflow as tf
@@ -410,7 +410,10 @@ with tab_predict:
             model = st.session_state["mri_model"]
 
             resized = img.resize((img_size, img_size))
-            arr = np.expand_dims(np.array(resized), axis=0)
+
+            arr = np.array(resized, dtype=np.float32)
+            arr = arr / 255.0          # normalize
+            arr = np.expand_dims(arr, axis=0)
             preds = model.predict(arr, verbose=0)[0]
             result = pd.Series(preds, index=class_names).sort_values(ascending=False)
 
