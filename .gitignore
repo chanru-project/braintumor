@@ -26,8 +26,8 @@ archive/
 *.zip
 
 # --- Trained models (often large binary files) ---
-*.keras
 *.h5
+*.keras
 *.pt
 *.pth
 *.onnx

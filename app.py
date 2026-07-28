@@ -114,15 +114,15 @@ def predict_image(model, image, class_names, img_size, normalize):
 
 
 st.title("🧠 Brain Tumor MRI Classifier")
-st.write("Upload a brain MRI image and predict the tumor class using your trained deep learning model.")
+st.write("Upload a brain MRI image to classify it with a local brain tumor model file.")
 
 model = load_model()
 class_names = load_class_names()
 metrics = load_metrics()
 
 if model is None:
-    st.error("brain_tumor_cnn.keras file not found in this folder.")
-    st.info("Keep app.py and brain_tumor_cnn.keras in the same directory.")
+    st.error("brain_tumor_cnn.keras file is not available locally.")
+    st.info("Add your trained model file next to app.py to enable predictions.")
     st.stop()
 
 # Auto-detect the correct input size and normalization from the model itself,
@@ -138,48 +138,53 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
-    image = Image.open(uploaded_file)
+    try:
+        image = Image.open(uploaded_file)
+        image.load()
+    except Exception as e:  # noqa: BLE001
+        st.error(f"The uploaded file could not be read as an image: {e}")
+        st.stop()
 
     st.subheader("Uploaded Image")
     st.image(image, caption="Selected MRI image", use_container_width=True)
 
-    if st.button("Predict", use_container_width=True):
-        try:
+    try:
+        with st.spinner("Predicting tumor class..."):
             predicted_class, confidence, labels, probs = predict_image(
                 model, image, class_names, IMG_SIZE, NORMALIZE
             )
 
-            st.success("Prediction completed successfully.")
+        st.success("Prediction completed successfully.")
 
-            st.subheader("Prediction Result")
-            st.write(f"**Predicted Class:** {predicted_class}")
-            st.write(f"**Confidence:** {confidence}%")
+        st.subheader("Prediction Result")
+        st.write(f"**Predicted Class:** {predicted_class}")
+        st.write(f"**Confidence:** {confidence}%")
 
-            test_accuracy = metrics.get("test_accuracy", "Not available")
-            if test_accuracy != "Not available":
-                st.write(f"**Model Test Accuracy:** {test_accuracy}%")
-            else:
-                st.write("**Model Test Accuracy:** Not available")
+        test_accuracy = metrics.get("test_accuracy", "Not available")
+        if test_accuracy != "Not available":
+            st.write(f"**Model Test Accuracy:** {test_accuracy}%")
+        else:
+            st.write("**Model Test Accuracy:** Not available")
 
-            df = pd.DataFrame({
-                "Class": labels,
-                "Probability (%)": probs
-            })
+        df = pd.DataFrame({
+            "Class": labels,
+            "Probability (%)": probs
+        })
 
-            st.subheader("Class Probabilities")
-            st.dataframe(df, use_container_width=True, hide_index=True)
+        st.subheader("Class Probabilities")
+        st.dataframe(df, use_container_width=True, hide_index=True)
 
-            st.bar_chart(df.set_index("Class"), use_container_width=True)
+        st.bar_chart(df.set_index("Class"), use_container_width=True)
 
-            st.info("Confidence is for this uploaded image. Accuracy is the overall model performance on a test dataset.")
+        st.info("Confidence is for this uploaded image. Accuracy is the overall model performance on a test dataset.")
 
-        except Exception as e:
-            st.error(f"Prediction failed: {e}")
-            st.caption(
-                "If this still complains about a shape mismatch, the model file itself may be "
-                "corrupted or from an incompatible Keras version — try re-saving it with "
-                "`model.save('brain_tumor_cnn.keras')` using the same TensorFlow/Keras version "
-                "installed here."
-            )
+    except Exception as e:  # noqa: BLE001
+        st.error(f"Prediction failed: {e}")
+        st.caption(
+            "If this still complains about a shape mismatch, the model file itself may be "
+            "corrupted or from an incompatible Keras version. Re-save it with "
+            "model.save('brain_tumor_cnn.keras') using the same TensorFlow/Keras version "
+            "installed here."
+        )
 else:
-    st.warning("Please upload a PNG, JPG, or JPEG file.")
+    st.info("Upload a PNG, JPG, or JPEG brain MRI image to get a prediction.")
