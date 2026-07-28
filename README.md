@@ -62,6 +62,9 @@ The application uses a **Convolutional Neural Network (CNN)** with **TensorFlow/
 - Cloud Deployment
 - Mobile Application
 - Patient Report Generation
+  
+## 🌐 Live Application
+🔗 **https://onco-pro.streamlit.app/**
 
 ## ⚠️ Disclaimer
 This project is intended for **educational and research purposes only**. It is **not a medical diagnostic system** and should not be used for clinical decision-making.
