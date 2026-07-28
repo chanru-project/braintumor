@@ -18,9 +18,10 @@ ENV/
 *-checkpoint.ipynb
 
 # --- Dataset (large image folders) ---
+glioma/
+healthy/
 meningioma/
 pituitary/
-archive/
 *.zip
 
 # --- Trained models (often large binary files) ---
