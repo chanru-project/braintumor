@@ -18,8 +18,6 @@ ENV/
 *-checkpoint.ipynb
 
 # --- Dataset (large image folders) ---
-glioma/
-healthy/
 meningioma/
 pituitary/
 archive/
