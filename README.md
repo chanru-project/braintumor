@@ -66,8 +66,4 @@ The application uses a **Convolutional Neural Network (CNN)** with **TensorFlow/
 ## ⚠️ Disclaimer
 This project is intended for **educational and research purposes only**. It is **not a medical diagnostic system** and should not be used for clinical decision-making.
 
-## 👨‍💻 Author
-**Deepan G V**  
-B.Tech Artificial Intelligence and Data Science
-
 ⭐ If you find this project useful, consider giving it a **Star** on GitHub.
